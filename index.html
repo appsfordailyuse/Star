@@ -3,46 +3,42 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D Gesture Particles</title>
+    <title>Hyper-3D Gesture Particles</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
-        canvas { display: block; }
-        
-        /* Video feed for tracking */
+        body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; }
         #video-container {
-            position: absolute;
-            bottom: 20px;
-            right: 20px;
-            width: 240px;
-            height: 180px;
-            border: 2px solid #444;
-            border-radius: 8px;
-            overflow: hidden;
-            transform: scaleX(-1); /* Mirror effect */
+            position: absolute; bottom: 15px; left: 15px;
+            width: 100px; height: 75px; border: 2px solid #00ff88;
+            border-radius: 10px; overflow: hidden; transform: scaleX(-1);
+            z-index: 10; opacity: 0.7;
         }
         video { width: 100%; height: 100%; object-fit: cover; }
         
-        #ui {
-            position: absolute;
-            top: 20px;
-            left: 20px;
-            color: white;
-            pointer-events: none;
-            text-shadow: 0 0 5px rgba(0,0,0,0.5);
+        #overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: radial-gradient(circle, #111 0%, #000 100%);
+            display: flex; flex-direction: column; justify-content: center;
+            align-items: center; z-index: 100; color: white;
         }
-        .instruction { font-size: 0.9rem; opacity: 0.8; }
+
+        #start-btn {
+            padding: 18px 50px; font-size: 1.4rem; background: #00ff88;
+            color: #000; border: none; border-radius: 10px; cursor: pointer;
+            font-weight: bold; transition: 0.3s;
+        }
+        #start-btn:active { transform: scale(0.95); }
     </style>
 </head>
 <body>
 
-    <div id="ui">
-        <h1>Gesture Particles</h1>
-        <p class="instruction">Open Palm: Expand | Pinch: Attract | Move: Follow</p>
-        <p id="status">Status: Initializing Camera...</p>
+    <div id="overlay">
+        <h1 style="letter-spacing: 5px;">ZAM ZAM 3D ENGINE</h1>
+        <p>Hath hilate hi poora system trigger hoga</p>
+        <button id="start-btn">ACTIVATE SYSTEM</button>
     </div>
 
     <div id="video-container">
-        <video id="input_video"></video>
+        <video id="input_video" playsinline></video>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
@@ -51,121 +47,106 @@
 
     <script>
         const videoElement = document.getElementById('input_video');
-        const statusText = document.getElementById('status');
+        const startBtn = document.getElementById('start-btn');
+        const overlay = document.getElementById('overlay');
 
-        // --- THREE.JS SETUP ---
+        // --- 1. ENHANCED SCENE SETUP ---
         const scene = new THREE.Scene();
-        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
+        const renderer = new THREE.WebGLRenderer({ antialias: false }); // Fast rendering
         renderer.setSize(window.innerWidth, window.innerHeight);
         document.body.appendChild(renderer.domElement);
+        camera.position.z = 8;
 
-        camera.position.z = 5;
-
-        // Particle System
-        const particleCount = 8000;
+        // --- 2. DENSE PARTICLE SYSTEM ---
+        const particleCount = 15000; // More particles for "Zada 3D" look
         const geometry = new THREE.BufferGeometry();
         const positions = new Float32Array(particleCount * 3);
-        const velocities = new Float32Array(particleCount * 3);
-        const colors = new Float32Array(particleCount * 3);
+        const originalPositions = new Float32Array(particleCount * 3);
 
-        for (let i = 0; i < particleCount; i++) {
-            positions[i * 3] = (Math.random() - 0.5) * 10;
-            positions[i * 3 + 1] = (Math.random() - 0.5) * 10;
-            positions[i * 3 + 2] = (Math.random() - 0.5) * 10;
-            
-            colors[i * 3] = Math.random();
-            colors[i * 3 + 1] = Math.random();
-            colors[i * 3 + 2] = Math.random();
+        for(let i=0; i<particleCount*3; i++) {
+            const val = (Math.random() - 0.5) * 25;
+            positions[i] = val;
+            originalPositions[i] = val;
         }
 
         geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-        geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-
-        const material = new THREE.PointsMaterial({
-            size: 0.04,
-            vertexColors: true,
-            transparent: true,
+        
+        const material = new THREE.PointsMaterial({ 
+            size: 0.08, 
+            color: 0x00ffff, 
+            transparent: true, 
             opacity: 0.8,
-            blending: THREE.AdditiveBlending
+            blending: THREE.AdditiveBlending 
         });
 
-        const particleSystem = new THREE.Points(geometry, material);
-        scene.add(particleSystem);
+        const particles = new THREE.Points(geometry, material);
+        scene.add(particles);
 
-        // --- MEDIAPIPE HANDS SETUP ---
-        let handX = 0, handY = 0, isPinching = false;
+        // --- 3. HIGH-SENSITIVITY TRACKING ---
+        let targetX = 0, targetY = 0, targetZ = 0;
+        let isActive = false;
 
-        function onResults(results) {
+        const hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
+        hands.setOptions({ maxNumHands: 1, modelComplexity: 0, minDetectionConfidence: 0.5 }); // Complexity 0 for speed
+        
+        hands.onResults((results) => {
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-                statusText.innerText = "Status: Tracking Active";
-                const landmarks = results.multiHandLandmarks[0];
+                isActive = true;
+                const lm = results.multiHandLandmarks[0][8]; // Index Tip
+                const thumb = results.multiHandLandmarks[0][4]; // Thumb Tip
+
+                // Sensitivity Boost: Higher Multipliers
+                targetX = (lm.x - 0.5) * -40; 
+                targetY = (lm.y - 0.5) * -30;
                 
-                // Track Index Tip (Landmark 8)
-                // Convert normalized 0-1 to Three.js coordinates
-                handX = (landmarks[8].x - 0.5) * -15; 
-                handY = (landmarks[8].y - 0.5) * -10;
-
-                // Check for Pinch (Thumb Tip 4 and Index Tip 8)
-                const dx = landmarks[4].x - landmarks[8].x;
-                const dy = landmarks[4].y - landmarks[8].y;
-                const dist = Math.sqrt(dx*dx + dy*dy);
-                isPinching = dist < 0.05;
+                // Pinch control for Z-axis (Depth)
+                const dist = Math.sqrt(Math.pow(lm.x - thumb.x, 2) + Math.pow(lm.y - thumb.y, 2));
+                targetZ = (dist < 0.05) ? 10 : -5; 
             } else {
-                statusText.innerText = "Status: Hand not detected";
+                isActive = false;
             }
-        }
-
-        const hands = new Hands({
-            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
         });
 
-        hands.setOptions({
-            maxNumHands: 1,
-            modelComplexity: 1,
-            minDetectionConfidence: 0.5,
-            minTrackingConfidence: 0.5
-        });
-        hands.onResults(onResults);
+        startBtn.onclick = async () => {
+            overlay.style.display = 'none';
+            const cameraFeed = new Camera(videoElement, {
+                onFrame: async () => { await hands.send({image: videoElement}); },
+                width: 640, height: 480
+            });
+            await cameraFeed.start();
+        };
 
-        const cameraFeed = new Camera(videoElement, {
-            onFrame: async () => {
-                await hands.send({image: videoElement});
-            },
-            width: 640,
-            height: 480
-        });
-        cameraFeed.start();
-
-        // --- ANIMATION LOOP ---
+        // --- 4. PHYSICS ENGINE (SUPER REACTIVE) ---
         function animate() {
             requestAnimationFrame(animate);
+            
+            const pos = geometry.attributes.position.array;
+            const time = Date.now() * 0.001;
 
-            const posAttr = geometry.attributes.position;
-            const posArray = posAttr.array;
+            for(let i=0; i<particleCount; i++) {
+                const ix = i*3, iy = i*3+1, iz = i*3+2;
 
-            for (let i = 0; i < particleCount; i++) {
-                const ix = i * 3, iy = i * 3 + 1, iz = i * 3 + 2;
-
-                // Physics: Attraction vs Drift
-                if (isPinching) {
-                    // Pull to hand
-                    posArray[ix] += (handX - posArray[ix]) * 0.05;
-                    posArray[iy] += (handY - posArray[iy]) * 0.05;
+                if (isActive) {
+                    // Particles rush to hand position with aggressive easing (0.1)
+                    pos[ix] += (targetX - pos[ix]) * (0.05 + Math.random() * 0.05);
+                    pos[iy] += (targetY - pos[iy]) * (0.05 + Math.random() * 0.05);
+                    pos[iz] += (targetZ - pos[iz]) * 0.05;
                 } else {
-                    // Gentle follow & rotation
-                    posArray[ix] += (handX - posArray[ix]) * 0.01 + (Math.random() - 0.5) * 0.02;
-                    posArray[iy] += (handY - posArray[iy]) * 0.01 + (Math.random() - 0.5) * 0.02;
+                    // Background idle movement (Floating)
+                    pos[ix] += Math.sin(time + i) * 0.01;
+                    pos[iy] += Math.cos(time + i) * 0.01;
                 }
             }
 
-            posAttr.needsUpdate = true;
-            particleSystem.rotation.y += 0.002;
+            // Rotating the whole universe slightly for depth
+            particles.rotation.y += 0.005;
+            particles.rotation.x += 0.002;
 
+            geometry.attributes.position.needsUpdate = true;
             renderer.render(scene, camera);
         }
 
-        // Handle Resize
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
